@@ -1,6 +1,7 @@
 //! Tauri commands exposed to the interface via `invoke`.
-//! Next steps add `import`, `recipe`, `preset` and `export` here.
+//! Next steps add `recipe`, `preset` and `export` here.
 
+pub mod library;
 pub mod system;
 
 /// Error type returned by commands; serialized as a plain string for the UI.
@@ -10,6 +11,8 @@ pub enum CommandError {
     Db(#[from] crate::db::DbError),
     #[error("estado do banco indisponível")]
     Poisoned,
+    #[error("{0}")]
+    Message(String),
 }
 
 impl serde::Serialize for CommandError {

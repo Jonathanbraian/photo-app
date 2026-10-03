@@ -1,77 +1,263 @@
-import { useEffect, useState } from "react";
-import { getAppStatus, isTauri, type AppStatus } from "../lib/api";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import PhotoGrid from "../components/PhotoGrid";
+import Sidebar from "../components/Sidebar";
+import StatusCard from "../components/StatusCard";
+import { isTauri, pickFolders } from "../lib/api";
+import { clickSelect, emptySelection, retain, selectAll, type Selection } from "../lib/selection";
+import { useLibrary } from "../lib/useLibrary";
 
-/** Biblioteca. Na etapa 1 mostra apenas o estado do motor Rust e do catálogo. */
+/** Per-viewer preferences; storage may be unavailable, so never rely on it. */
+function stored<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : (JSON.parse(raw) as T);
+  } catch {
+    return fallback;
+  }
+}
+function store(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
 export default function Library() {
+  const [folderId, setFolderId] = useState<number | null>(null);
+  const [recursive, setRecursive] = useState(() => stored("import.recursive", true));
+  const [cellSize, setCellSize] = useState(() => stored("grid.size", 160));
+  const [selection, setSelection] = useState<Selection>(emptySelection);
+  const [dragging, setDragging] = useState(false);
+  const lib = useLibrary(folderId);
+
+  const ids = useMemo(() => lib.photos.map((p) => p.id), [lib.photos]);
+  const totalPhotos = lib.folders.reduce((n, f) => n + f.photoCount, 0);
+
+  useEffect(() => store("import.recursive", recursive), [recursive]);
+  useEffect(() => store("grid.size", cellSize), [cellSize]);
+  useEffect(() => setSelection((s) => retain(s, ids)), [ids]);
+
+  // Ctrl/Cmd+A selects everything in view; Esc clears.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSelection(selectAll(ids));
+      } else if (e.key === "Escape") {
+        setSelection(emptySelection);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ids]);
+
+  // Drag and drop folders from Finder / Explorer.
+  const { startImport } = lib;
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    getCurrentWebview()
+      .onDragDropEvent((e) => {
+        if (e.payload.type === "enter" || e.payload.type === "over") setDragging(true);
+        else if (e.payload.type === "leave") setDragging(false);
+        else if (e.payload.type === "drop") {
+          setDragging(false);
+          void startImport(e.payload.paths, recursive);
+        }
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [startImport, recursive]);
+
+  const onImportClick = async () => {
+    const paths = await pickFolders();
+    await startImport(paths, recursive);
+  };
+
+  const onCellClick = (index: number, e: MouseEvent) => {
+    setSelection((s) =>
+      clickSelect(s, ids, index, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey }),
+    );
+  };
+
+  const importing = lib.progress !== null;
+  const empty = lib.photos.length === 0 && totalPhotos === 0;
+
   return (
-    <div className="flex h-full">
-      <aside className="w-60 shrink-0 border-r border-neutral-800 p-4 text-sm text-neutral-500">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">
-          Pastas
-        </h2>
-        <p>Nenhuma pasta importada.</p>
-        <h2 className="mt-6 mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">
-          Presets
-        </h2>
-        <p>Nenhum preset.</p>
-      </aside>
-      <section className="flex flex-1 items-center justify-center p-8">
-        <div className="w-full max-w-lg space-y-6 text-center">
-          <div>
-            <p className="text-lg text-neutral-300">Importe uma pasta para começar</p>
-            <p className="mt-1 text-sm text-neutral-500">A importação chega na etapa 2.</p>
-          </div>
-          <StatusCard />
+    <div className="relative flex h-full">
+      <Sidebar
+        folders={lib.folders}
+        totalPhotos={totalPhotos}
+        selectedFolder={folderId}
+        onSelectFolder={(id) => {
+          setFolderId(id);
+          setSelection(emptySelection);
+        }}
+      />
+
+      <section className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-12 shrink-0 items-center gap-4 border-b border-neutral-800 px-4 text-sm">
+          <button
+            type="button"
+            onClick={() => void onImportClick()}
+            disabled={importing}
+            className="rounded bg-sky-600 px-3 py-1.5 font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+          >
+            Importar pasta…
+          </button>
+          <label className="flex items-center gap-2 text-neutral-400">
+            <input
+              type="checkbox"
+              checked={recursive}
+              onChange={(e) => setRecursive(e.target.checked)}
+              className="accent-sky-500"
+            />
+            Incluir subpastas
+          </label>
+
+          {lib.progress && <ProgressBar done={lib.progress.done} total={lib.progress.total} />}
+
+          <label className="ml-auto flex items-center gap-2 text-neutral-500" title="Tamanho das miniaturas">
+            <span className="text-xs">▫</span>
+            <input
+              type="range"
+              min={96}
+              max={300}
+              step={4}
+              value={cellSize}
+              onChange={(e) => setCellSize(Number(e.target.value))}
+              className="w-28 accent-sky-500"
+            />
+            <span className="text-base">▢</span>
+          </label>
         </div>
+
+        {lib.error && (
+          <Banner tone="error" onClose={lib.dismissError}>
+            {lib.error}
+          </Banner>
+        )}
+        {lib.summary && (
+          <Banner tone={lib.summary.failed ? "warn" : "ok"} onClose={lib.dismissSummary}>
+            Importação concluída: {lib.summary.processed} processada(s),{" "}
+            {lib.summary.skipped} já estavam na biblioteca
+            {lib.summary.failed > 0 && `, ${lib.summary.failed} com erro`}.
+            {lib.summary.errors.length > 0 && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-xs">Ver erros</summary>
+                <ul className="mt-1 max-h-32 overflow-y-auto font-mono text-xs select-text">
+                  {lib.summary.errors.map((err) => (
+                    <li key={err.path}>
+                      {err.path}: {err.message}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </Banner>
+        )}
+
+        <div className="min-h-0 flex-1">
+          {empty ? (
+            <EmptyState onImport={() => void onImportClick()} />
+          ) : (
+            <PhotoGrid
+              photos={lib.photos}
+              cellSize={cellSize}
+              selected={selection.ids}
+              onCellClick={onCellClick}
+              onBackgroundClick={() => setSelection(emptySelection)}
+            />
+          )}
+        </div>
+
+        <footer className="flex h-11 shrink-0 items-center gap-3 border-t border-neutral-800 px-4 text-sm">
+          <span className="text-neutral-400 tabular-nums">
+            {selection.ids.size > 0
+              ? `${selection.ids.size} de ${lib.photos.length} selecionada(s)`
+              : `${lib.photos.length} foto(s)`}
+          </span>
+          <div className="ml-auto flex gap-2">
+            {["Aplicar preset", "Colar ajustes", "Exportar"].map((label) => (
+              <button
+                key={label}
+                type="button"
+                disabled
+                title="Disponível nas próximas etapas"
+                className="rounded border border-neutral-800 px-3 py-1 text-neutral-500 disabled:cursor-not-allowed"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </footer>
       </section>
+
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-sky-400 bg-sky-500/10 text-lg text-sky-200">
+          Solte a pasta para importar{recursive ? " (com subpastas)" : ""}
+        </div>
+      )}
     </div>
   );
 }
 
-function StatusCard() {
-  const [status, setStatus] = useState<AppStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isTauri()) {
-      setError("Rodando no navegador: abra pelo app (npm run tauri dev) para conectar ao Rust.");
-      return;
-    }
-    getAppStatus()
-      .then(setStatus)
-      .catch((e: unknown) => setError(String(e)));
-  }, []);
-
-  const upToDate = status && status.schemaVersion === status.latestSchemaVersion;
-
+function ProgressBar({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? (done / total) * 100 : 0;
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4 text-left text-sm">
-      <h3 className="mb-3 flex items-center gap-2 font-medium text-neutral-200">
-        <span
-          className={`inline-block h-2 w-2 rounded-full ${
-            error ? "bg-red-500" : upToDate ? "bg-emerald-500" : "bg-amber-500"
-          }`}
-        />
-        Diagnóstico
-      </h3>
-      {error && <p className="text-red-400">{error}</p>}
-      {!error && !status && <p className="text-neutral-500">Conectando ao motor…</p>}
-      {status && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-          <dt className="text-neutral-500">Versão do app</dt>
-          <dd>{status.appVersion}</dd>
-          <dt className="text-neutral-500">SQLite</dt>
-          <dd>{status.sqliteVersion}</dd>
-          <dt className="text-neutral-500">Esquema</dt>
-          <dd>
-            v{status.schemaVersion} de v{status.latestSchemaVersion}
-          </dd>
-          <dt className="text-neutral-500">Tabelas</dt>
-          <dd>{status.tables.join(", ")}</dd>
-          <dt className="text-neutral-500">Catálogo</dt>
-          <dd className="break-all font-mono text-xs select-text">{status.dbPath}</dd>
-        </dl>
-      )}
+    <div className="flex items-center gap-3 text-neutral-300">
+      <div className="h-1.5 w-40 overflow-hidden rounded bg-neutral-800">
+        <div className="h-full bg-sky-500 transition-[width]" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="tabular-nums">
+        {total > 0 ? `Importando ${done} de ${total}` : "Procurando fotos…"}
+      </span>
+    </div>
+  );
+}
+
+function Banner(props: { tone: "ok" | "warn" | "error"; onClose: () => void; children: ReactNode }) {
+  const tones = {
+    ok: "border-emerald-900 bg-emerald-950/60 text-emerald-200",
+    warn: "border-amber-900 bg-amber-950/60 text-amber-200",
+    error: "border-red-900 bg-red-950/60 text-red-200",
+  };
+  return (
+    <div className={`flex items-start gap-3 border-b px-4 py-2 text-sm ${tones[props.tone]}`}>
+      <div className="min-w-0 flex-1">{props.children}</div>
+      <button type="button" onClick={props.onClose} className="opacity-70 hover:opacity-100" aria-label="Fechar">
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function EmptyState({ onImport }: { onImport: () => void }) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="w-full max-w-lg space-y-6 text-center">
+        <div>
+          <p className="text-lg text-neutral-300">Arraste uma pasta para cá</p>
+          <p className="mt-1 text-sm text-neutral-500">
+            ou{" "}
+            <button type="button" onClick={onImport} className="text-sky-400 hover:underline">
+              escolha uma pasta
+            </button>
+            . JPEG, PNG, TIFF, HEIC e RAW (CR2, CR3, NEF, ARW, RAF, DNG).
+          </p>
+        </div>
+        <StatusCard />
+      </div>
     </div>
   );
 }

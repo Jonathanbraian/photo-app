@@ -17,16 +17,28 @@
         "height": 800,
         "minWidth": 960,
         "minHeight": 600,
-        "theme": "Dark"
+        "theme": "Dark",
+        "dragDropEnabled": true,
+        "label": "main"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPCACHE/**"
+        ]
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "msi"],
+    "targets": [
+      "app",
+      "dmg",
+      "msi"
+    ],
     "category": "Photography",
     "shortDescription": "Edição de cor e luz em lote",
     "icon": [

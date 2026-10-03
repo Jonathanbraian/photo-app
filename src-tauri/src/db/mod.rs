@@ -5,13 +5,18 @@
 //! migration runs exactly once. To evolve the schema, append a new file to
 //! `MIGRATIONS` — never edit one that has already shipped.
 
+pub mod catalog;
+
 use std::path::Path;
 
 use rusqlite::Connection;
 
 pub const DB_FILE_NAME: &str = "library.db";
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_init.sql"),
+    include_str!("migrations/0002_import.sql"),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -31,7 +36,7 @@ pub fn open(path: &Path) -> Result<Connection, DbError> {
     Ok(conn)
 }
 
-fn configure(conn: &Connection) -> Result<(), DbError> {
+pub(crate) fn configure(conn: &Connection) -> Result<(), DbError> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", true)?;
@@ -93,7 +98,14 @@ mod tests {
         assert_eq!(schema_version(&conn).unwrap(), latest_version());
         assert_eq!(
             list_tables(&conn).unwrap(),
-            ["export_profiles", "history", "photos", "presets", "recipes"]
+            [
+                "export_profiles",
+                "folders",
+                "history",
+                "photos",
+                "presets",
+                "recipes"
+            ]
         );
     }
 
