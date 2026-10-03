@@ -38,6 +38,11 @@ pub struct Photo {
     /// `pending`, `ready` or `error`
     pub cache_status: String,
     pub cache_error: Option<String>,
+    /// The photo has a non-neutral recipe.
+    pub edited: bool,
+    /// File name of the edited thumbnail in the cache's `edited/` folder.
+    #[serde(skip)]
+    pub edited_thumb: Option<String>,
 }
 
 /// What the importer needs to know about a path already in the catalog.
@@ -50,8 +55,10 @@ pub struct Existing {
     pub cache_status: String,
 }
 
-const PHOTO_COLUMNS: &str = "id, folder_id, path, file_name, format, hash, width, height, \
-     orientation, camera, lens, iso, aperture, shutter_speed, taken_at, cache_status, cache_error";
+const PHOTO_COLUMNS: &str = "p.id, p.folder_id, p.path, p.file_name, p.format, p.hash, \
+     p.width, p.height, p.orientation, p.camera, p.lens, p.iso, p.aperture, p.shutter_speed, \
+     p.taken_at, p.cache_status, p.cache_error, COALESCE(r.edited, 0), r.thumb_file";
+const PHOTO_FROM: &str = "photos p LEFT JOIN recipes r ON r.photo_id = p.id";
 
 fn photo_from_row(row: &Row) -> rusqlite::Result<Photo> {
     Ok(Photo {
@@ -72,6 +79,8 @@ fn photo_from_row(row: &Row) -> rusqlite::Result<Photo> {
         taken_at: row.get(14)?,
         cache_status: row.get(15)?,
         cache_error: row.get(16)?,
+        edited: row.get(17)?,
+        edited_thumb: row.get(18)?,
     })
 }
 
@@ -193,7 +202,7 @@ pub fn mark_error(
 pub fn get_photo(conn: &Connection, id: i64) -> Result<Option<Photo>, DbError> {
     Ok(conn
         .query_row(
-            &format!("SELECT {PHOTO_COLUMNS} FROM photos WHERE id = ?1"),
+            &format!("SELECT {PHOTO_COLUMNS} FROM {PHOTO_FROM} WHERE p.id = ?1"),
             [id],
             photo_from_row,
         )
@@ -203,9 +212,9 @@ pub fn get_photo(conn: &Connection, id: i64) -> Result<Option<Photo>, DbError> {
 /// Photos ordered by path; `folder_id = None` lists every photo.
 pub fn list_photos(conn: &Connection, folder_id: Option<i64>) -> Result<Vec<Photo>, DbError> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {PHOTO_COLUMNS} FROM photos
-         WHERE ?1 IS NULL OR folder_id = ?1
-         ORDER BY path"
+        "SELECT {PHOTO_COLUMNS} FROM {PHOTO_FROM}
+         WHERE ?1 IS NULL OR p.folder_id = ?1
+         ORDER BY p.path"
     ))?;
     let photos = stmt
         .query_map([folder_id], photo_from_row)?

@@ -1,6 +1,8 @@
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { checkJpeg, toBytes } from "./imageDecode";
+import type { Recipe } from "./recipe";
 
 /** Mirrors `commands::system::AppStatus` in Rust. */
 export interface AppStatus {
@@ -41,6 +43,8 @@ export interface Photo {
   takenAt: string | null;
   cacheStatus: CacheStatus;
   cacheError: string | null;
+  /** Has a non-neutral recipe (badge in the library). */
+  edited: boolean;
   thumbPath: string | null;
   previewPath: string | null;
 }
@@ -92,4 +96,50 @@ export async function pickFolders(): Promise<string[]> {
 /** URL the webview can load for a cache file. */
 export function fileUrl(path: string): string {
   return convertFileSrc(path);
+}
+
+/** Mirrors `db::edits::EditState`. */
+export interface EditState {
+  photoId: number;
+  recipe: Recipe;
+  historyId: number | null;
+  canUndo: boolean;
+  canRedo: boolean;
+  edited: boolean;
+}
+
+export interface EditResult {
+  state: EditState;
+  photo: Photo | null;
+}
+
+/** The 2048 px preview JPEG bytes (never the original file), validated. */
+export async function readPreview(photoId: number): Promise<Uint8Array> {
+  const bytes = toBytes(await invoke<unknown>("read_preview", { photoId }));
+  checkJpeg(bytes);
+  return bytes;
+}
+
+export function loadEdit(photoId: number): Promise<EditState> {
+  return invoke<EditState>("load_edit", { photoId });
+}
+
+export function saveRecipe(photoId: number, recipe: Recipe): Promise<EditResult> {
+  return invoke<EditResult>("save_recipe", { photoId, recipe });
+}
+
+export function undoEdit(photoId: number): Promise<EditResult> {
+  return invoke<EditResult>("undo_edit", { photoId });
+}
+
+export function redoEdit(photoId: number): Promise<EditResult> {
+  return invoke<EditResult>("redo_edit", { photoId });
+}
+
+export function saveEditedThumb(
+  photoId: number,
+  historyId: number | null,
+  jpegBase64: string,
+): Promise<Photo | null> {
+  return invoke<Photo | null>("save_edited_thumb", { photoId, historyId, jpegBase64 });
 }

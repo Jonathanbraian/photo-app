@@ -40,6 +40,10 @@ impl CachePaths {
     pub fn preview(&self, hash: &str) -> PathBuf {
         self.root.join("previews").join(format!("{hash}.jpg"))
     }
+    /// Thumbnails that reflect a photo's edits (written by the Develop screen).
+    pub fn edited(&self, file_name: &str) -> PathBuf {
+        self.root.join("edited").join(file_name)
+    }
     pub fn tmp(&self) -> PathBuf {
         self.root.join("tmp")
     }

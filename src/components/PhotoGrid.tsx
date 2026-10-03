@@ -10,11 +10,19 @@ interface Props {
   cellSize: number;
   selected: Set<number>;
   onCellClick: (index: number, e: MouseEvent) => void;
+  onCellDoubleClick: (index: number) => void;
   onBackgroundClick: () => void;
 }
 
 /** Virtualized thumbnail grid: only the visible rows are in the DOM. */
-export default function PhotoGrid({ photos, cellSize, selected, onCellClick, onBackgroundClick }: Props) {
+export default function PhotoGrid({
+  photos,
+  cellSize,
+  selected,
+  onCellClick,
+  onCellDoubleClick,
+  onBackgroundClick,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -76,6 +84,7 @@ export default function PhotoGrid({ photos, cellSize, selected, onCellClick, onB
                   size={size}
                   selected={selected.has(photo.id)}
                   onClick={(e) => onCellClick(start + i, e)}
+                  onDoubleClick={() => onCellDoubleClick(start + i)}
                 />
               ))}
             </div>
@@ -91,12 +100,14 @@ function Cell(props: {
   size: number;
   selected: boolean;
   onClick: (e: MouseEvent) => void;
+  onDoubleClick: () => void;
 }) {
   const { photo, size, selected } = props;
   return (
     <button
       type="button"
       onClick={props.onClick}
+      onDoubleClick={props.onDoubleClick}
       title={photo.cacheError ? `${photo.fileName}\n${photo.cacheError}` : undefined}
       className={`group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md bg-neutral-900 outline-none ${
         selected
@@ -120,6 +131,14 @@ function Cell(props: {
         </span>
       ) : (
         <span className="h-full w-full animate-pulse bg-neutral-800/60" />
+      )}
+      {photo.edited && (
+        <span
+          title="Editada"
+          className="pointer-events-none absolute top-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/70 text-[11px] text-amber-300"
+        >
+          ✎
+        </span>
       )}
       <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/60 px-1.5 py-0.5 text-left text-[11px] text-neutral-300 opacity-0 transition-opacity group-hover:opacity-100">
         {photo.fileName}

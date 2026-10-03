@@ -23,13 +23,19 @@ pub struct PhotoView {
 }
 
 impl PhotoView {
-    fn new(photo: Photo, cache: &CachePaths) -> Self {
+    pub fn new(photo: Photo, cache: &CachePaths) -> Self {
         let ready = photo.cache_status == "ready";
         let path = |p: PathBuf| ready.then(|| p.to_string_lossy().into_owned());
-        let (thumb_path, preview_path) = match photo.hash.as_deref() {
+        let (mut thumb_path, preview_path) = match photo.hash.as_deref() {
             Some(h) => (path(cache.thumb(h)), path(cache.preview(h))),
             None => (None, None),
         };
+        if let Some(file) = photo.edited_thumb.as_deref().filter(|_| photo.edited) {
+            let edited = cache.edited(file);
+            if edited.is_file() {
+                thumb_path = path(edited);
+            }
+        }
         Self {
             photo,
             thumb_path,

@@ -1,48 +1,57 @@
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type MouseEvent,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import PhotoGrid from "../components/PhotoGrid";
 import Sidebar from "../components/Sidebar";
 import StatusCard from "../components/StatusCard";
 import { isTauri, pickFolders } from "../lib/api";
 import { clickSelect, emptySelection, retain, selectAll, type Selection } from "../lib/selection";
-import { useLibrary } from "../lib/useLibrary";
+import { isTyping, store, stored } from "../lib/prefs";
+import type { useLibrary } from "../lib/useLibrary";
 
-/** Per-viewer preferences; storage may be unavailable, so never rely on it. */
-function stored<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? fallback : (JSON.parse(raw) as T);
-  } catch {
-    return fallback;
-  }
-}
-function store(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore
-  }
+interface Props {
+  lib: ReturnType<typeof useLibrary>;
+  folderId: number | null;
+  onFolderChange: (id: number | null) => void;
+  selection: Selection;
+  setSelection: Dispatch<SetStateAction<Selection>>;
+  /** Last clicked photo: what D opens in the Develop screen. */
+  onCurrent: (id: number) => void;
+  /** Double click: open in Develop. */
+  onOpen: (id: number) => void;
 }
 
-export default function Library() {
-  const [folderId, setFolderId] = useState<number | null>(null);
+export default function Library({
+  lib,
+  folderId,
+  onFolderChange,
+  selection,
+  setSelection,
+  onCurrent,
+  onOpen,
+}: Props) {
   const [recursive, setRecursive] = useState(() => stored("import.recursive", true));
   const [cellSize, setCellSize] = useState(() => stored("grid.size", 160));
-  const [selection, setSelection] = useState<Selection>(emptySelection);
   const [dragging, setDragging] = useState(false);
-  const lib = useLibrary(folderId);
 
   const ids = useMemo(() => lib.photos.map((p) => p.id), [lib.photos]);
   const totalPhotos = lib.folders.reduce((n, f) => n + f.photoCount, 0);
 
   useEffect(() => store("import.recursive", recursive), [recursive]);
   useEffect(() => store("grid.size", cellSize), [cellSize]);
-  useEffect(() => setSelection((s) => retain(s, ids)), [ids]);
+  useEffect(() => setSelection((s) => retain(s, ids)), [ids, setSelection]);
 
   // Ctrl/Cmd+A selects everything in view; Esc clears.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (isTyping(e.target)) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setSelection(selectAll(ids));
@@ -52,7 +61,7 @@ export default function Library() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ids]);
+  }, [ids, setSelection]);
 
   // Drag and drop folders from Finder / Explorer.
   const { startImport } = lib;
@@ -85,6 +94,7 @@ export default function Library() {
   };
 
   const onCellClick = (index: number, e: MouseEvent) => {
+    onCurrent(ids[index]);
     setSelection((s) =>
       clickSelect(s, ids, index, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey }),
     );
@@ -100,7 +110,7 @@ export default function Library() {
         totalPhotos={totalPhotos}
         selectedFolder={folderId}
         onSelectFolder={(id) => {
-          setFolderId(id);
+          onFolderChange(id);
           setSelection(emptySelection);
         }}
       />
@@ -176,6 +186,7 @@ export default function Library() {
               cellSize={cellSize}
               selected={selection.ids}
               onCellClick={onCellClick}
+              onCellDoubleClick={(index) => onOpen(ids[index])}
               onBackgroundClick={() => setSelection(emptySelection)}
             />
           )}

@@ -1,6 +1,7 @@
 //! Tauri commands exposed to the interface via `invoke`.
-//! Next steps add `recipe`, `preset` and `export` here.
+//! Next steps add `preset` and `export` here.
 
+pub mod develop;
 pub mod library;
 pub mod system;
 

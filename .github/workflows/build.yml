@@ -39,6 +39,12 @@ jobs:
       - run: npm ci
       - name: Typecheck e build da interface
         run: npm run build
+      - name: Testes da interface (Vitest)
+        run: npm test
+      - name: Prévia WebGL = referência e fluxo da Edição (Playwright, Chromium + WebKit)
+        run: |
+          npx playwright install --with-deps chromium webkit
+          npx playwright test
       - name: cargo fmt
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - name: cargo clippy
