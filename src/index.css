@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Tema escuro por padrão: não distorce a percepção de cor durante a edição. */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-neutral-950 text-neutral-200 antialiased select-none;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
