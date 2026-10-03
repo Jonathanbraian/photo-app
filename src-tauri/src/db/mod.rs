@@ -6,6 +6,7 @@
 //! `MIGRATIONS` — never edit one that has already shipped.
 
 pub mod catalog;
+pub mod edits;
 
 use std::path::Path;
 
@@ -16,6 +17,7 @@ pub const DB_FILE_NAME: &str = "library.db";
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_import.sql"),
+    include_str!("migrations/0003_edits.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]

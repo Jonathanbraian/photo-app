@@ -102,6 +102,11 @@ export function useLibrary(folderId: number | null) {
     }
   }, []);
 
+  /** Replaces one photo in the list (e.g. after an edit changes its thumbnail). */
+  const updatePhoto = useCallback((photo: Photo) => {
+    setPhotos((list) => list.map((p) => (p.id === photo.id ? photo : p)));
+  }, []);
+
   return {
     folders,
     photos,
@@ -109,6 +114,7 @@ export function useLibrary(folderId: number | null) {
     summary,
     error,
     startImport,
+    updatePhoto,
     dismissSummary: () => setSummary(null),
     dismissError: () => setError(null),
   };

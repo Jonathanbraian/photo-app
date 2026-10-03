@@ -3,6 +3,7 @@ pub mod db;
 pub mod import;
 pub mod pipeline;
 pub mod raw;
+pub mod recipe;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -42,6 +43,12 @@ pub fn run() {
             commands::library::import_folders,
             commands::library::list_folders,
             commands::library::list_photos,
+            commands::develop::read_preview,
+            commands::develop::load_edit,
+            commands::develop::save_recipe,
+            commands::develop::undo_edit,
+            commands::develop::redo_edit,
+            commands::develop::save_edited_thumb,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

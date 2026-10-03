@@ -15,3 +15,32 @@ body {
   @apply bg-neutral-950 text-neutral-200 antialiased select-none;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+
+/* Adjustment slider: transparent track (drawn by the component), small thumb. */
+input[type="range"].slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"].slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 12px;
+  width: 12px;
+  border-radius: 9999px;
+  background: #e5e5e5;
+  border: 0;
+}
+input[type="range"].slider::-moz-range-thumb {
+  height: 12px;
+  width: 12px;
+  border-radius: 9999px;
+  background: #e5e5e5;
+  border: 0;
+}
+input[type="range"].slider:focus {
+  outline: none;
+}
+input[type="range"].slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgb(14 165 233 / 0.6);
+}

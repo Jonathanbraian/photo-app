@@ -2,21 +2,24 @@
 
 App desktop (Mac e Windows) para aplicar o mesmo tratamento de cor e luz a centenas de fotos e exportar em lote. Especificação completa em [`docs/SPEC.md`](docs/SPEC.md).
 
-**Estado atual:** etapa 2 — importação de pastas com miniaturas e prévias em cache, grade virtualizada com seleção múltipla e filtro por pasta.
+**Estado atual:** etapa 3a — tela Edição com ajustes de Luz, Cor e Presença em tempo real (WebGL), histograma, receita salva automaticamente e desfazer/refazer persistente. Fórmulas em [`docs/ADJUSTMENTS.md`](docs/ADJUSTMENTS.md).
 
 ## Estrutura
 
 ```
 src/                    # Interface (React + TypeScript + Vite + Tailwind)
   screens/              # Library (Biblioteca), Develop (Edição)
-  components/           # PhotoGrid (virtualizada), Sidebar, StatusCard
-  lib/                  # api.ts (invoke/eventos), selection.ts, useLibrary.ts
+  components/           # PhotoGrid, Sidebar, Viewer, Filmstrip, Slider, Panel, HistogramView
+  gl/                   # renderer.ts + shaders.ts (prévia WebGL2)
+  lib/                  # api.ts, recipe.ts, adjust.ts (referência em CPU), useEditor.ts…
 src-tauri/              # Motor (Rust)
   src/commands/         # comandos Tauri expostos à interface
   src/db/               # SQLite + migrações (src/db/migrations/*.sql) e consultas
   src/import.rs         # varredura, registro no catálogo e cache em paralelo
   src/pipeline/         # decodificação, EXIF, HEIC, miniaturas
   src/raw/              # leitura de RAW (rawler)
+  src/recipe.rs         # receita (mesmo JSON do SPEC)
+  src/db/edits.rs       # receita atual + histórico (desfazer/refazer)
   tests/                # testes de importação + fixtures (JPEG e DNG)
   tauri.conf.json
 .github/workflows/      # build Mac (.dmg) + Windows (.msi)
@@ -42,6 +45,8 @@ Testes e verificações:
 
 ```bash
 npm run build                                         # typecheck + build da interface
+npm test                                              # Vitest: fórmulas, receita, seleção
+npx playwright install chromium && npm run test:gl    # WebGL = referência em CPU + fluxo da Edição
 cargo test   --manifest-path src-tauri/Cargo.toml     # testes do banco/migrações
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
@@ -74,6 +79,16 @@ As migrações são arquivos SQL em `src-tauri/src/db/migrations/`, aplicados em
 - Reimportar uma pasta não duplica fotos: arquivos sem mudança (mesmo tamanho e data) são pulados; arquivos alterados são reprocessados mantendo o mesmo id.
 
 As fixtures de teste (`src-tauri/tests/fixtures/`) são geradas por `cargo run --example make_fixtures` (em `src-tauri/`).
+
+## Edição
+
+- Abrir: duplo clique na miniatura ou tecla D (abre a última foto clicada). G volta à Biblioteca.
+- Zoom: clique na foto alterna entre "Ajustar" e 100 % (um pixel da prévia de 2048 px por pixel da tela); arraste para mover.
+- ← → navegam pela tira de miniaturas; segure `\` para ver o antes.
+- Duplo clique num slider zera o valor; ↺ zera o painel.
+- A receita é salva ~300 ms depois da última mudança; cada salvamento é um passo de desfazer (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z), mantido depois de reabrir o app.
+- A miniatura da Biblioteca passa a mostrar a edição (gerada pela prévia, em `edited/` na pasta de cache) e ganha o selo ✎.
+- Os originais nunca são abertos pela Edição: ela usa a prévia de 2048 px do cache.
 
 ## Ícone
 

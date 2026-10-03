@@ -2875,6 +2875,7 @@ dependencies = [
 name = "photo-batch-editor"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "blake3",
  "dunce",
  "fast_image_resize",
