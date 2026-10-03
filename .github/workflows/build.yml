@@ -85,6 +85,12 @@ jobs:
 
       - run: npm ci
 
+      - name: Testes do motor (${{ matrix.name }})
+        # `generate_context!` precisa da interface compilada em dist/.
+        run: |
+          npm run build
+          cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Build do instalador
         run: npm run tauri build -- ${{ matrix.args }}
 
