@@ -4,10 +4,16 @@ interface Props {
   spec: SliderSpec;
   value: number;
   onChange: (value: number) => void;
+  /** CSS background for the track (e.g. a color gradient). */
+  track?: string;
+  /** Accessible name when the label alone is ambiguous. */
+  ariaLabel?: string;
+  /** Value shown instead of the default formatting. */
+  display?: string;
 }
 
 /** Adjustment slider. Double click resets to the neutral value. */
-export default function Slider({ spec, value, onChange }: Props) {
+export default function Slider({ spec, value, onChange, track, ariaLabel, display }: Props) {
   const changed = value !== spec.neutral;
   const shown =
     spec.digits !== undefined
@@ -23,19 +29,29 @@ export default function Slider({ spec, value, onChange }: Props) {
       <div className="flex items-baseline justify-between text-xs">
         <span className={changed ? "text-neutral-200" : "text-neutral-400"}>{spec.label}</span>
         <span className="tabular-nums text-neutral-400">
-          {shown}
-          {spec.unit ? ` ${spec.unit}` : ""}
+          {display ?? (
+            <>
+              {shown}
+              {spec.unit ? ` ${spec.unit}` : ""}
+            </>
+          )}
         </span>
       </div>
       <div className="relative mt-1 h-4">
-        <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded bg-neutral-700" />
-        <div
-          className="absolute top-1/2 h-0.5 -translate-y-1/2 rounded bg-sky-500"
-          style={{ left: `${a}%`, width: `${b - a}%` }}
-        />
+        {track ? (
+          <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded" style={{ background: track }} />
+        ) : (
+          <>
+            <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded bg-neutral-700" />
+            <div
+              className="absolute top-1/2 h-0.5 -translate-y-1/2 rounded bg-sky-500"
+              style={{ left: `${a}%`, width: `${b - a}%` }}
+            />
+          </>
+        )}
         <input
           type="range"
-          aria-label={spec.label}
+          aria-label={ariaLabel ?? spec.label}
           min={spec.min}
           max={spec.max}
           step={spec.step}

@@ -4,6 +4,7 @@ import { renderReference } from "../../src/lib/adjust";
 import { normalizeRecipe } from "../../src/lib/recipe";
 import { PreviewRenderer } from "../../src/gl/renderer";
 import { decodeVia } from "../../src/lib/imageDecode";
+import { parseCube } from "../../src/lib/lut";
 
 function pattern(w: number, h: number): Uint8Array {
   const px = new Uint8Array(w * h * 4);
@@ -23,6 +24,8 @@ function pattern(w: number, h: number): Uint8Array {
 }
 
 interface Result {
+  width: number;
+  height: number;
   maxDiff: number;
   meanDiff: number;
   floatTargets: boolean;
@@ -30,7 +33,7 @@ interface Result {
 
 declare global {
   interface Window {
-    compare: (recipe: unknown, w: number, h: number, bypass?: boolean) => Result;
+    compare: (recipe: unknown, w: number, h: number, bypass?: boolean, cube?: string) => Result;
     compareDecoders: () => Promise<{ maxDiff: number; width: number; height: number }>;
   }
 }
@@ -38,12 +41,19 @@ declare global {
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const renderer = new PreviewRenderer(canvas);
 
-window.compare = (input, w, h, bypass = false) => {
+window.compare = (input, w, h, bypass = false, cube) => {
   const recipe = normalizeRecipe(input);
+  const lut = cube ? parseCube(cube) : null;
   const src = pattern(w, h);
   renderer.setPixels(src, w, h);
-  const gpu = renderer.readPixels(recipe, { bypass }).pixels;
-  const cpu = renderReference(src, w, h, recipe, bypass);
+  renderer.setLut(lut);
+  const g = renderer.readPixels(recipe, { bypass });
+  const c = renderReference(src, w, h, recipe, bypass, lut);
+  if (g.width !== c.width || g.height !== c.height) {
+    throw new Error(`size GPU ${g.width}×${g.height} ≠ CPU ${c.width}×${c.height}`);
+  }
+  const gpu = g.pixels;
+  const cpu = c.pixels;
   let max = 0;
   let sum = 0;
   let n = 0;
@@ -56,6 +66,8 @@ window.compare = (input, w, h, bypass = false) => {
     }
   }
   return {
+    width: g.width,
+    height: g.height,
     maxDiff: max,
     meanDiff: sum / n,
     floatTargets: renderer.gl.getExtension("EXT_color_buffer_float") !== null,

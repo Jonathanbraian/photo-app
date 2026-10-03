@@ -3,6 +3,7 @@
 
 pub mod develop;
 pub mod library;
+pub mod luts;
 pub mod system;
 
 /// Error type returned by commands; serialized as a plain string for the UI.

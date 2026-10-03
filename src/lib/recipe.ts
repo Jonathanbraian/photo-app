@@ -1,4 +1,5 @@
 /** Recipe: the versioned JSON with a photo's adjustments (see docs/SPEC.md). */
+import type { Curves, Point } from "./curve";
 
 export interface Recipe {
   version: 1;
@@ -13,12 +14,14 @@ export interface Recipe {
   color: { temperature: number; tint: number; vibrance: number; saturation: number };
   presence: { sharpness: number; clarity: number; noise: number; vignette: number };
   hsl: Record<string, { h: number; s: number; l: number }>;
-  curve: { rgb: [number, number][] };
-  lut: string | null;
+  curve: Curves;
+  /** Imported LUT (copied to the app data folder) and its strength 0…1. */
+  lut: { id: string; intensity: number } | null;
   crop: { x: number; y: number; w: number; h: number; angle: number; ratio: string | null };
 }
 
 export type GroupKey = "light" | "color" | "presence";
+export type ToolKey = GroupKey | "hsl" | "curve" | "crop" | "lut";
 
 export interface SliderSpec {
   key: string;
@@ -67,6 +70,11 @@ export const PANELS: { group: GroupKey; title: string; sliders: SliderSpec[] }[]
   },
 ];
 
+const identity = (): Point[] => [
+  [0, 0],
+  [255, 255],
+];
+
 export function defaultRecipe(): Recipe {
   return {
     version: 1,
@@ -74,12 +82,7 @@ export function defaultRecipe(): Recipe {
     color: { temperature: 6500, tint: 0, vibrance: 0, saturation: 0 },
     presence: { sharpness: 0, clarity: 0, noise: 0, vignette: 0 },
     hsl: {},
-    curve: {
-      rgb: [
-        [0, 0],
-        [255, 255],
-      ],
-    },
+    curve: { rgb: identity(), r: identity(), g: identity(), b: identity() },
     lut: null,
     crop: { x: 0, y: 0, w: 1, h: 1, angle: 0, ratio: null },
   };
@@ -100,11 +103,41 @@ export function normalizeRecipe(input: unknown): Recipe {
       target[key] = num(src[group]?.[key], target[key]);
     }
   }
-  const raw = input as Partial<Recipe>;
-  if (raw.hsl && typeof raw.hsl === "object") base.hsl = raw.hsl;
-  if (raw.curve && Array.isArray(raw.curve.rgb)) base.curve = raw.curve;
-  if (typeof raw.lut === "string") base.lut = raw.lut;
-  if (raw.crop && typeof raw.crop === "object") base.crop = { ...base.crop, ...raw.crop };
+  const raw = input as Record<string, unknown>;
+  const hsl = raw.hsl as Record<string, Record<string, unknown>> | undefined;
+  if (hsl && typeof hsl === "object") {
+    for (const [key, v] of Object.entries(hsl)) {
+      if (!v || typeof v !== "object") continue;
+      const e = { h: num(v.h, 0), s: num(v.s, 0), l: num(v.l, 0) };
+      if (e.h || e.s || e.l) base.hsl[key] = e;
+    }
+  }
+  const curve = raw.curve as Record<string, unknown> | undefined;
+  if (curve && typeof curve === "object") {
+    for (const ch of ["rgb", "r", "g", "b"] as const) {
+      const pts = curve[ch];
+      if (Array.isArray(pts) && pts.length >= 2) {
+        base.curve[ch] = pts
+          .filter((p): p is [number, number] => Array.isArray(p) && p.length === 2)
+          .map(([x, y]) => [num(x, 0), num(y, 0)]);
+      }
+    }
+  }
+  const lut = raw.lut as Record<string, unknown> | null | undefined;
+  if (lut && typeof lut === "object" && typeof lut.id === "string") {
+    base.lut = { id: lut.id, intensity: Math.min(1, Math.max(0, num(lut.intensity, 1))) };
+  }
+  const crop = raw.crop as Record<string, unknown> | undefined;
+  if (crop && typeof crop === "object") {
+    base.crop = {
+      x: num(crop.x, 0),
+      y: num(crop.y, 0),
+      w: num(crop.w, 1),
+      h: num(crop.h, 1),
+      angle: num(crop.angle, 0),
+      ratio: typeof crop.ratio === "string" ? crop.ratio : null,
+    };
+  }
   return base;
 }
 
@@ -112,18 +145,39 @@ export function withValue(r: Recipe, group: GroupKey, key: string, value: number
   return { ...r, [group]: { ...r[group], [key]: value } };
 }
 
-export function resetGroup(r: Recipe, group: GroupKey): Recipe {
-  return { ...r, [group]: { ...defaultRecipe()[group] } };
+export function resetGroup(r: Recipe, group: ToolKey): Recipe {
+  const d = defaultRecipe();
+  return { ...r, [group]: d[group] };
 }
 
 export function getValue(r: Recipe, group: GroupKey, key: string): number {
   return (r[group] as Record<string, number>)[key];
 }
 
-export function isGroupNeutral(r: Recipe, group: GroupKey): boolean {
+export function isGroupNeutral(r: Recipe, group: ToolKey): boolean {
   return JSON.stringify(r[group]) === JSON.stringify(defaultRecipe()[group]);
 }
 
 export function recipesEqual(a: Recipe, b: Recipe): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Sets one HSL value; colors back to all-zero are dropped (stay neutral). */
+export function withHsl(r: Recipe, color: string, field: "h" | "s" | "l", value: number): Recipe {
+  const cur = r.hsl[color] ?? { h: 0, s: 0, l: 0 };
+  const next = { ...cur, [field]: value };
+  const hsl = { ...r.hsl };
+  if (next.h === 0 && next.s === 0 && next.l === 0) delete hsl[color];
+  else hsl[color] = next;
+  return { ...r, hsl };
+}
+
+export function withCurve(r: Recipe, channel: keyof Recipe["curve"], points: [number, number][]): Recipe {
+  return { ...r, curve: { ...r.curve, [channel]: points } };
+}
+
+/** Crop with a full rect and no rotation is stored as neutral (ratio is UI only). */
+export function withCrop(r: Recipe, crop: Recipe["crop"]): Recipe {
+  const neutral = crop.angle === 0 && crop.x === 0 && crop.y === 0 && crop.w === 1 && crop.h === 1;
+  return { ...r, crop: neutral ? defaultRecipe().crop : crop };
 }

@@ -1,5 +1,6 @@
 // End-to-end flow of the Develop screen with the real interface and WebGL
 // (Rust commands mocked in tests/e2e/mock-backend.ts).
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { expect, test, type Page } from "@playwright/test";
 
 type Backend = {
@@ -142,4 +143,133 @@ test("prévia que não é JPEG mostra o motivo e os primeiros bytes", async ({ p
   await page.goto("/tests/e2e/app.html?preview=bad");
   await page.locator('button:has-text("IMG_1.jpg")').dblclick();
   await expect(page.getByText(/A prévia não é um JPEG \(15 bytes, começa com 32 35 35 2C/)).toBeVisible();
+});
+
+// ── Step 3b: HSL, curve, crop & straighten, LUT ───────────────────────────
+
+type Entry = { recipe: Record<string, any> };
+const recipeOf = (page: Page, id = 1) =>
+  page.evaluate(
+    (pid) => (window as never as { __backend: { entries: Map<number, Entry> } }).__backend.entries.get(pid)?.recipe ?? null,
+    id,
+  );
+
+async function openFirst(page: Page) {
+  await page.locator('button:has-text("IMG_1.jpg")').dblclick();
+  // The preview canvas stays hidden until the photo is decoded and rendered.
+  await expect(page.locator("main canvas").first()).toBeVisible();
+}
+
+test("HSL: abas e sliders por cor vão para a receita", async ({ page }) => {
+  await openFirst(page);
+  const before = await histogramPixels(page);
+  await page.getByRole("tab", { name: "Saturação" }).click();
+  await page.getByRole("slider", { name: "Saturação Verde" }).fill("-100");
+  await page.getByRole("tab", { name: "Matiz" }).click();
+  await page.getByRole("slider", { name: "Matiz Azul" }).fill("40");
+  await expect.poll(() => recipeOf(page).then((r) => r?.hsl)).toEqual({
+    green: { h: 0, s: -100, l: 0 },
+    blue: { h: 40, s: 0, l: 0 },
+  });
+  await expect.poll(() => histogramPixels(page)).not.toBe(before);
+});
+
+test("curva: clique adiciona, arrasta move, duplo clique remove", async ({ page }) => {
+  await openFirst(page);
+  const svg = page.getByRole("img", { name: "Curva RGB" });
+  await svg.scrollIntoViewIfNeeded();
+  const box = (await svg.boundingBox())!;
+  // viewBox is -4…259: map curve coordinates to screen.
+  const at = (x: number, y: number) => ({
+    x: box.x + ((x + 4) / 263) * box.width,
+    y: box.y + ((255 - y + 4) / 263) * box.height,
+  });
+  let p = at(100, 150);
+  await page.mouse.click(p.x, p.y);
+  await expect(page.getByTestId("curve-point")).toHaveCount(3);
+  // Drag it.
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  p = at(110, 180);
+  await page.mouse.move(p.x, p.y, { steps: 4 });
+  await page.mouse.up();
+  // The click saves first; wait for the save after the drag (debounced).
+  await expect.poll(() => recipeOf(page).then((r) => r?.curve?.rgb?.[1]?.[1] ?? 0)).toBeGreaterThan(170);
+  const rgb = (await recipeOf(page))!.curve.rgb;
+  expect(rgb).toHaveLength(3);
+  expect(rgb[1][0]).toBeGreaterThan(104);
+  // Channel tab + double click removes the point.
+  await page.mouse.dblclick(p.x, p.y);
+  await expect(page.getByTestId("curve-point")).toHaveCount(2);
+  await page.getByRole("tab", { name: "R", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Curva R" })).toBeVisible();
+});
+
+test("corte: R, proporção 1:1, Enter aplica; a foto aparece cortada e a miniatura também", async ({ page }) => {
+  await openFirst(page);
+  await page.keyboard.press("r");
+  await expect(page.getByTestId("crop-rect")).toBeVisible();
+  await page.getByRole("button", { name: "1:1" }).click();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("crop-rect")).toHaveCount(0);
+  await expect.poll(() => recipeOf(page).then((r) => r?.crop?.ratio)).toBe("1:1");
+  const crop = (await recipeOf(page))!.crop;
+  expect(crop.w * 1200).toBeCloseTo(crop.h * 800, 3); // square in pixels
+  const canvas = page.locator("main canvas").first();
+  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.width - c.height)).toBe(0);
+  // The edited thumbnail is square too.
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const calls = (window as never as { __backend: Backend }).__backend.calls.filter((c) => c.cmd === "save_edited_thumb");
+        const last = calls[calls.length - 1];
+        if (!last) return null;
+        const img = new Image();
+        img.src = `data:image/jpeg;base64,${last.args.jpegBase64}`;
+        await img.decode();
+        return img.naturalWidth === img.naturalHeight;
+      }),
+    )
+    .toBe(true);
+  // Undo removes the crop.
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => recipeOf(page).then((r) => r?.crop?.w)).toBe(1);
+});
+
+test("corte: endireitar corta as bordas vazias; X alterna a orientação; Esc cancela", async ({ page }) => {
+  await openFirst(page);
+  await page.keyboard.press("r");
+  await page.getByRole("button", { name: "4:5" }).click();
+  await page.keyboard.press("x");
+  await page.getByRole("slider", { name: "Endireitar" }).fill("10");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => recipeOf(page).then((r) => r?.crop?.angle)).toBe(10);
+  const crop = (await recipeOf(page))!.crop;
+  // 4:5 on a landscape photo keeps it landscape (5:4); X turns it portrait.
+  expect(crop.ratio).toBe("4:5");
+  expect((crop.w * 1200) / (crop.h * 800)).toBeCloseTo(4 / 5, 3);
+  expect(crop.w).toBeLessThan(1);
+
+  // Esc discards changes made in crop mode.
+  await page.keyboard.press("r");
+  await page.getByRole("slider", { name: "Endireitar" }).fill("-20");
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("crop-rect")).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect((await recipeOf(page))!.crop.angle).toBe(10);
+});
+
+test("LUT: importa .cube, aplica com intensidade e entra no histórico", async ({ page }) => {
+  await openFirst(page);
+  const before = await histogramPixels(page);
+  await page.getByRole("button", { name: "Importar .cube…" }).click();
+  await expect.poll(() => recipeOf(page).then((r) => r?.lut)).toEqual({ id: "abc123", intensity: 1 });
+  await expect(page.getByRole("combobox", { name: "LUT" })).toHaveValue("abc123");
+  await expect.poll(() => histogramPixels(page)).not.toBe(before);
+  await page.getByRole("slider", { name: "Intensidade" }).fill("40");
+  await expect.poll(() => recipeOf(page).then((r) => r?.lut?.intensity)).toBe(0.4);
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => recipeOf(page).then((r) => r?.lut?.intensity)).toBe(1);
+  await page.getByRole("combobox", { name: "LUT" }).selectOption("");
+  await expect.poll(() => recipeOf(page).then((r) => r?.lut)).toBeNull();
 });

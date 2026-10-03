@@ -16,7 +16,7 @@ const NEUTRAL = {
   color: { temperature: 6500, tint: 0, vibrance: 0, saturation: 0 },
   presence: { sharpness: 0, clarity: 0, noise: 0, vignette: 0 },
   hsl: {},
-  curve: { rgb: [[0, 0], [255, 255]] },
+  curve: { rgb: [[0, 0], [255, 255]], r: [[0, 0], [255, 255]], g: [[0, 0], [255, 255]], b: [[0, 0], [255, 255]] },
   lut: null,
   crop: { x: 0, y: 0, w: 1, h: 1, angle: 0, ratio: null },
 };
@@ -85,6 +85,7 @@ const state = (id: number) => {
 const result = (id: number) => ({ state: state(id), photo: photo(id) });
 
 const ids = [1, 2, 3];
+const luts: { id: string; name: string; kind: string; size: number; title: string }[] = [];
 
 // Failure modes seen on macOS (WKWebView), selected by query string.
 const params = new URLSearchParams(location.search);
@@ -141,6 +142,18 @@ mockIPC(
         }
         return result(id);
       }
+      case "plugin:dialog|open":
+        return "/fotos/luts/Quente.cube";
+      case "import_lut": {
+        const info = { id: "abc123", name: "Quente", kind: "3d", size: 2, title: "" };
+        if (!luts.some((l) => l.id === info.id)) luts.push(info);
+        return info;
+      }
+      case "list_luts":
+        return luts;
+      case "read_lut":
+        // Warm 2³ LUT: boosts red, cuts blue.
+        return "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0.1 0 0.6\n1 0 0.6\n0.1 1 0.6\n1 1 0.6\n";
       case "save_edited_thumb": {
         const e = entry(id);
         if (e.cur !== a.historyId) return null;
