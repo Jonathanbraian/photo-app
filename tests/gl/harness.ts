@@ -26,6 +26,7 @@ function pattern(w: number, h: number): Uint8Array {
 interface Result {
   width: number;
   height: number;
+  pixelsOver2: number;
   maxDiff: number;
   meanDiff: number;
   floatTargets: boolean;
@@ -57,19 +58,34 @@ window.compare = (input, w, h, bypass = false, cube) => {
   let max = 0;
   let sum = 0;
   let n = 0;
+  let worst = -1;
   for (let i = 0; i < gpu.length; i += 4) {
     for (let c = 0; c < 3; c++) {
       const d = Math.abs(gpu[i + c] - cpu[i + c]);
+      if (d > max) worst = i;
       max = Math.max(max, d);
       sum += d;
       n++;
     }
   }
+  // Where the largest difference is (input pixel, GPU and CPU outputs).
+  const at = worst >= 0 ? Array.from(src.slice(worst, worst + 3)) : [];
+  const g3 = worst >= 0 ? Array.from(gpu.slice(worst, worst + 3)) : [];
+  const c3 = worst >= 0 ? Array.from(cpu.slice(worst, worst + 3)) : [];
+  const over2 = (() => {
+    let k = 0;
+    for (let i = 0; i < gpu.length; i += 4) {
+      if ([0, 1, 2].some((c) => Math.abs(gpu[i + c] - cpu[i + c]) > 2)) k++;
+    }
+    return k;
+  })();
   return {
     width: g.width,
     height: g.height,
     maxDiff: max,
     meanDiff: sum / n,
+    worst: { input: at, gpu: g3, cpu: c3 },
+    pixelsOver2: over2,
     floatTargets: renderer.gl.getExtension("EXT_color_buffer_float") !== null,
   };
 };

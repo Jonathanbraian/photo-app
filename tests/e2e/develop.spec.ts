@@ -194,7 +194,9 @@ test("curva: clique adiciona, arrasta move, duplo clique remove", async ({ page 
   await page.mouse.move(p.x, p.y, { steps: 4 });
   await page.mouse.up();
   // The click saves first; wait for the save after the drag (debounced).
-  await expect.poll(() => recipeOf(page).then((r) => r?.curve?.rgb?.[1]?.[1] ?? 0)).toBeGreaterThan(170);
+  await expect
+    .poll(() => recipeOf(page).then((r) => (r?.curve?.rgb?.length === 3 ? r.curve.rgb[1][1] : 0)))
+    .toBeGreaterThan(170);
   const rgb = (await recipeOf(page))!.curve.rgb;
   expect(rgb).toHaveLength(3);
   expect(rgb[1][0]).toBeGreaterThan(104);
