@@ -143,3 +143,36 @@ export function saveEditedThumb(
 ): Promise<Photo | null> {
   return invoke<Photo | null>("save_edited_thumb", { photoId, historyId, jpegBase64 });
 }
+
+export interface LutInfo {
+  id: string;
+  name: string;
+  kind: "1d" | "3d";
+  size: number;
+  title: string;
+}
+
+/** Validates the `.cube` and copies it to the app data folder. */
+export function importLut(path: string): Promise<LutInfo> {
+  return invoke<LutInfo>("import_lut", { path });
+}
+
+export function listLuts(): Promise<LutInfo[]> {
+  return invoke<LutInfo[]>("list_luts");
+}
+
+/** Text of an imported LUT (the app's own copy). */
+export function readLut(id: string): Promise<string> {
+  return invoke<string>("read_lut", { id });
+}
+
+/** File picker for `.cube` files; null when cancelled. */
+export async function pickCube(): Promise<string | null> {
+  const result = await open({
+    multiple: false,
+    directory: false,
+    title: "Importar LUT",
+    filters: [{ name: "LUT .cube", extensions: ["cube", "CUBE"] }],
+  });
+  return typeof result === "string" ? result : null;
+}

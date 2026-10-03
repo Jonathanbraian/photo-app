@@ -38,7 +38,7 @@ describe("transfer functions", () => {
 describe("neutral recipe", () => {
   it("is the identity", () => {
     const src = pattern(40, 30);
-    const out = renderReference(src, 40, 30, defaultRecipe());
+    const out = renderReference(src, 40, 30, defaultRecipe()).pixels;
     for (let i = 0; i < src.length; i++) expect(Math.abs(out[i] - src[i])).toBeLessThanOrEqual(1);
   });
 
@@ -132,7 +132,7 @@ describe("presence", () => {
     const w = 64;
     const h = 48;
     const src = new Uint8ClampedArray(w * h * 4).fill(128);
-    const out = renderReference(src, w, h, withValue(defaultRecipe(), "presence", "vignette", -100));
+    const out = renderReference(src, w, h, withValue(defaultRecipe(), "presence", "vignette", -100)).pixels;
     expect(out[0]).toBeLessThan(100);
     const c = ((h / 2) * w + w / 2) * 4;
     expect(Math.abs(out[c] - 128)).toBeLessThanOrEqual(1);
@@ -142,7 +142,7 @@ describe("presence", () => {
     const src = new Uint8ClampedArray(32 * 32 * 4).fill(100);
     let r = withValue(defaultRecipe(), "presence", "sharpness", 100);
     r = withValue(r, "presence", "clarity", 100);
-    const out = renderReference(src, 32, 32, r);
+    const out = renderReference(src, 32, 32, r).pixels;
     for (let i = 0; i < out.length; i += 4) expect(Math.abs(out[i] - 100)).toBeLessThanOrEqual(1);
   });
 
@@ -154,7 +154,7 @@ describe("presence", () => {
       const v = i % w < w / 2 ? 60 : 180;
       src.set([v, v, v, 255], i * 4);
     }
-    const out = renderReference(src, w, h, withValue(defaultRecipe(), "presence", "sharpness", 100));
+    const out = renderReference(src, w, h, withValue(defaultRecipe(), "presence", "sharpness", 100)).pixels;
     expect(out[(w / 2 - 1) * 4]).toBeLessThan(60);
     expect(out[(w / 2) * 4]).toBeGreaterThan(180);
     expect(Math.abs(out[10 * 4] - 60)).toBeLessThanOrEqual(1);

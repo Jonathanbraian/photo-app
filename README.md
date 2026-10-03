@@ -2,7 +2,7 @@
 
 App desktop (Mac e Windows) para aplicar o mesmo tratamento de cor e luz a centenas de fotos e exportar em lote. Especificação completa em [`docs/SPEC.md`](docs/SPEC.md).
 
-**Estado atual:** etapa 3a — tela Edição com ajustes de Luz, Cor e Presença em tempo real (WebGL), histograma, receita salva automaticamente e desfazer/refazer persistente. Fórmulas em [`docs/ADJUSTMENTS.md`](docs/ADJUSTMENTS.md).
+**Estado atual:** etapa 3b — Edição com Luz, Cor, Presença, HSL por cor, curva de tons, corte/endireitar e LUT `.cube`, em tempo real (WebGL), com histórico persistente. Fórmulas e ordem da cadeia em [`docs/ADJUSTMENTS.md`](docs/ADJUSTMENTS.md).
 
 ## Estrutura
 
@@ -86,6 +86,10 @@ As fixtures de teste (`src-tauri/tests/fixtures/`) são geradas por `cargo run -
 - Zoom: clique na foto alterna entre "Ajustar" e 100 % (um pixel da prévia de 2048 px por pixel da tela); arraste para mover.
 - ← → navegam pela tira de miniaturas; segure `\` para ver o antes.
 - Duplo clique num slider zera o valor; ↺ zera o painel.
+- HSL: abas Matiz / Saturação / Luminância, 8 cores.
+- Curva: RGB e por canal; clique adiciona ponto, arraste move, duplo clique remove.
+- Corte: R entra no modo de corte (R ou Enter aplica, Esc cancela), X alterna vertical/horizontal, slider "Endireitar" de −45° a +45° (as bordas vazias são cortadas automaticamente).
+- LUT: "Importar .cube…" copia o arquivo para `luts/` na pasta de dados do app (Mac: `~/Library/Application Support/com.nexsyss.photobatcheditor/`, Windows: `%APPDATA%\com.nexsyss.photobatcheditor\`); a receita guarda só o id e a intensidade.
 - A receita é salva ~300 ms depois da última mudança; cada salvamento é um passo de desfazer (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z), mantido depois de reabrir o app.
 - A miniatura da Biblioteca passa a mostrar a edição (gerada pela prévia, em `edited/` na pasta de cache) e ganha o selo ✎.
 - Os originais nunca são abertos pela Edição: ela usa a prévia de 2048 px do cache.

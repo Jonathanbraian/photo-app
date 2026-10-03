@@ -17,7 +17,7 @@ export default function Panel({ id, title, canReset, onReset, children }: Props)
     store(`panel.${id}`, !open);
   };
   return (
-    <section className="border-b border-neutral-800">
+    <section id={`panel-${id}`} className="border-b border-neutral-800">
       <header className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"

@@ -1,6 +1,7 @@
 mod commands;
 pub mod db;
 pub mod import;
+pub mod lut;
 pub mod pipeline;
 pub mod raw;
 pub mod recipe;
@@ -14,6 +15,8 @@ use tauri::Manager;
 pub struct AppState {
     pub db: Arc<Mutex<rusqlite::Connection>>,
     pub db_path: std::path::PathBuf,
+    /// App data folder (catalog, imported LUTs).
+    pub data_dir: std::path::PathBuf,
     pub cache: import::CachePaths,
     /// True while an import runs; only one at a time.
     pub importing: Arc<AtomicBool>,
@@ -33,6 +36,7 @@ pub fn run() {
             app.manage(AppState {
                 db: Arc::new(Mutex::new(conn)),
                 db_path,
+                data_dir,
                 cache: import::CachePaths::new(cache_dir),
                 importing: Arc::new(AtomicBool::new(false)),
             });
@@ -49,6 +53,9 @@ pub fn run() {
             commands::develop::undo_edit,
             commands::develop::redo_edit,
             commands::develop::save_edited_thumb,
+            commands::luts::import_lut,
+            commands::luts::list_luts,
+            commands::luts::read_lut,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

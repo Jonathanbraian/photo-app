@@ -14,8 +14,20 @@ pub struct Recipe {
     pub presence: Presence,
     pub hsl: BTreeMap<String, Hsl>,
     pub curve: Curve,
-    pub lut: Option<String>,
+    pub lut: Option<LutRef>,
     pub crop: Crop,
+}
+
+/// An imported LUT (`luts` table) and its strength 0…1.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LutRef {
+    pub id: String,
+    #[serde(default = "one")]
+    pub intensity: f64,
+}
+
+fn one() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -56,10 +68,14 @@ pub struct Hsl {
     pub l: f64,
 }
 
+/// Tone curves: `rgb` first, then per channel (points 0…255).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Curve {
     pub rgb: Vec<[f64; 2]>,
+    pub r: Vec<[f64; 2]>,
+    pub g: Vec<[f64; 2]>,
+    pub b: Vec<[f64; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,8 +117,12 @@ impl Default for Color {
 
 impl Default for Curve {
     fn default() -> Self {
+        let identity = vec![[0.0, 0.0], [255.0, 255.0]];
         Self {
-            rgb: vec![[0.0, 0.0], [255.0, 255.0]],
+            rgb: identity.clone(),
+            r: identity.clone(),
+            g: identity.clone(),
+            b: identity,
         }
     }
 }
@@ -130,9 +150,12 @@ impl Recipe {
         serde_json::to_string(self).expect("recipe serializes")
     }
 
-    /// True when any adjustment differs from neutral.
+    /// True when any adjustment differs from neutral. HSL entries that are
+    /// all zero count as neutral.
     pub fn is_edited(&self) -> bool {
-        *self != Self::default()
+        let mut r = self.clone();
+        r.hsl.retain(|_, v| *v != Hsl::default());
+        r != Self::default()
     }
 }
 
@@ -167,6 +190,36 @@ mod tests {
         assert_eq!(r.light.exposure, 1.0);
         assert_eq!(r.color.temperature, 6500.0);
         assert_eq!(r.curve, Curve::default());
+    }
+
+    #[test]
+    fn step_3b_fields_round_trip() {
+        let json = r#"{
+          "hsl": { "green": { "h": 10, "s": -20, "l": 5 } },
+          "curve": { "rgb": [[0,0],[128,150],[255,255]], "b": [[0,20],[255,255]] },
+          "lut": { "id": "abc", "intensity": 0.4 },
+          "crop": { "x": 0.1, "y": 0.1, "w": 0.8, "h": 0.8, "angle": -3.5, "ratio": "4:5" }
+        }"#;
+        let r = Recipe::from_json(json).unwrap();
+        assert_eq!(
+            r.curve.r,
+            Curve::default().r,
+            "missing channels default to identity"
+        );
+        assert_eq!(r.curve.b[0], [0.0, 20.0]);
+        assert_eq!(r.lut.as_ref().unwrap().intensity, 0.4);
+        assert_eq!(r.crop.angle, -3.5);
+        assert!(r.is_edited());
+        assert_eq!(Recipe::from_json(&r.to_json()).unwrap(), r);
+        // A LUT without intensity means 100 %.
+        let r = Recipe::from_json(r#"{"lut":{"id":"x"}}"#).unwrap();
+        assert_eq!(r.lut.unwrap().intensity, 1.0);
+    }
+
+    #[test]
+    fn zeroed_hsl_entries_are_neutral() {
+        let r = Recipe::from_json(r#"{"hsl":{"red":{"h":0,"s":0,"l":0}}}"#).unwrap();
+        assert!(!r.is_edited());
     }
 
     #[test]

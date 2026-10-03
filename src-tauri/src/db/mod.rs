@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_import.sql"),
     include_str!("migrations/0003_edits.sql"),
+    include_str!("migrations/0004_luts.sql"),
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -104,6 +105,7 @@ mod tests {
                 "export_profiles",
                 "folders",
                 "history",
+                "luts",
                 "photos",
                 "presets",
                 "recipes"

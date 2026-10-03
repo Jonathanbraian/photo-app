@@ -5,6 +5,10 @@
  * and the Rust export (step 4) must reproduce it. Keep it literal and simple:
  * correctness over speed.
  */
+import { cropSize, isNeutralCrop, toSource } from "./crop";
+import { curveFunctions, curvesIdentity } from "./curve";
+import { applyHsl, hslIsNeutral, hslVectors } from "./hsl";
+import { applyLut, type Lut } from "./lut";
 import type { Recipe } from "./recipe";
 
 export type Vec3 = [number, number, number];
@@ -70,8 +74,23 @@ export function whiteBalanceGains(temperature: number, tint: number): Vec3 {
   return [g[0] / y, g[1] / y, g[2] / y];
 }
 
-/** Steps 2–5 (everything per-pixel before the spatial step), linear in/out. */
-export function pointAdjust(rgb: Vec3, r: Recipe, gains: Vec3): Vec3 {
+/** Per-recipe precomputation for the per-pixel steps. */
+export interface Prepared {
+  gains: Vec3;
+  hsl: Vec3[] | null;
+  curves: ((e: number) => number)[] | null;
+}
+
+export function prepare(r: Recipe): Prepared {
+  return {
+    gains: whiteBalanceGains(r.color.temperature, r.color.tint),
+    hsl: hslIsNeutral(r.hsl) ? null : hslVectors(r.hsl),
+    curves: curvesIdentity(r.curve) ? null : curveFunctions(r.curve),
+  };
+}
+
+/** Steps 2–7 (everything per-pixel before the spatial step), linear in/out. */
+export function pointAdjust(rgb: Vec3, r: Recipe, gains: Vec3, prep: Prepared = prepare(r)): Vec3 {
   const { light, color } = r;
   // 2. White balance
   let c: Vec3 = [rgb[0] * gains[0], rgb[1] * gains[1], rgb[2] * gains[2]];
@@ -98,11 +117,19 @@ export function pointAdjust(rgb: Vec3, r: Recipe, gains: Vec3): Vec3 {
   const mn = Math.min(c[0], c[1], c[2]);
   const sat = mx > 1e-6 ? (mx - mn) / mx : 0;
   const f = (1 + (color.vibrance / 100) * (1 - sat) * (1 - sat)) * (1 + color.saturation / 100);
-  return [
+  c = [
     Math.max(l5 + (c[0] - l5) * f, 0),
     Math.max(l5 + (c[1] - l5) * f, 0),
     Math.max(l5 + (c[2] - l5) * f, 0),
   ];
+  // 6. HSL
+  if (prep.hsl) c = applyHsl(c, prep.hsl);
+  // 7. Tone curve (on encoded values)
+  if (prep.curves) {
+    const fns = prep.curves;
+    c = [0, 1, 2].map((i) => srgbToLinear(clamp(fns[i](linearToSrgb(c[i])), 0, 1))) as Vec3;
+  }
+  return c;
 }
 
 /** Separable Gaussian blur with replicated edges (step 6). */
@@ -138,9 +165,53 @@ export function gaussianBlur(src: Float64Array, w: number, h: number, sigma: num
   return out;
 }
 
+export interface Rendered {
+  pixels: Uint8ClampedArray;
+  width: number;
+  height: number;
+}
+
+/** Step 13: crop & straighten an 8-bit RGBA image (bilinear). */
+export function cropImage(
+  src: Uint8ClampedArray,
+  W: number,
+  H: number,
+  crop: Recipe["crop"],
+): Rendered {
+  const [wc, hc] = cropSize(crop, W, H);
+  const out = new Uint8ClampedArray(wc * hc * 4);
+  const at = (x: number, y: number, ch: number) =>
+    src[(clamp(y, 0, H - 1) * W + clamp(x, 0, W - 1)) * 4 + ch];
+  for (let j = 0; j < hc; j++)
+    for (let i = 0; i < wc; i++) {
+      const fx = crop.x * W + (i + 0.5) * ((crop.w * W) / wc) - W / 2;
+      const fy = crop.y * H + (j + 0.5) * ((crop.h * H) / hc) - H / 2;
+      const [sx, sy] = toSource(fx, fy, crop.angle);
+      const px = W / 2 + sx - 0.5;
+      const py = H / 2 + sy - 0.5;
+      const o = (j * wc + i) * 4;
+      out[o + 3] = 255;
+      if (px < -0.5 || px > W - 0.5 || py < -0.5 || py > H - 0.5) continue; // black
+      const x0 = Math.floor(px);
+      const y0 = Math.floor(py);
+      const fxw = px - x0;
+      const fyw = py - y0;
+      for (let ch = 0; ch < 3; ch++) {
+        const v =
+          at(x0, y0, ch) * (1 - fxw) * (1 - fyw) +
+          at(x0 + 1, y0, ch) * fxw * (1 - fyw) +
+          at(x0, y0 + 1, ch) * (1 - fxw) * fyw +
+          at(x0 + 1, y0 + 1, ch) * fxw * fyw;
+        out[o + ch] = Math.round(v);
+      }
+    }
+  return { pixels: out, width: wc, height: hc };
+}
+
 /**
  * Full pipeline on an 8-bit sRGB RGBA image (alpha ignored, output alpha 255).
- * `bypass` renders the "before" view (steps 1 and 8 only).
+ * `bypass` renders the "before" view (steps 1, 10 and 12 only, no crop).
+ * `lut` is the parsed LUT referenced by `r.lut`, if any.
  */
 export function renderReference(
   rgba: Uint8ClampedArray | Uint8Array,
@@ -148,7 +219,8 @@ export function renderReference(
   h: number,
   r: Recipe,
   bypass = false,
-): Uint8ClampedArray {
+  lut: Lut | null = null,
+): Rendered {
   const n = w * h;
   const out = new Uint8ClampedArray(n * 4);
   const lin: Vec3[] = new Array(n);
@@ -160,11 +232,11 @@ export function renderReference(
     ];
   }
   if (!bypass) {
-    const gains = whiteBalanceGains(r.color.temperature, r.color.tint);
+    const prep = prepare(r);
     const p = new Float64Array(n);
     const lum = new Float64Array(n);
     for (let i = 0; i < n; i++) {
-      lin[i] = pointAdjust(lin[i], r, gains);
+      lin[i] = pointAdjust(lin[i], r, prep.gains, prep);
       lum[i] = luma(lin[i]);
       p[i] = enc(lum[i]);
     }
@@ -190,11 +262,15 @@ export function renderReference(
         lin[i] = c;
       }
   }
+  const useLut = !bypass && lut !== null && r.lut !== null;
   for (let i = 0; i < n; i++) {
-    out[i * 4] = Math.round(255 * linearToSrgb(lin[i][0]));
-    out[i * 4 + 1] = Math.round(255 * linearToSrgb(lin[i][1]));
-    out[i * 4 + 2] = Math.round(255 * linearToSrgb(lin[i][2]));
+    let e: [number, number, number] = [linearToSrgb(lin[i][0]), linearToSrgb(lin[i][1]), linearToSrgb(lin[i][2])];
+    if (useLut) e = applyLut(lut, e, r.lut!.intensity);
+    out[i * 4] = Math.round(255 * e[0]);
+    out[i * 4 + 1] = Math.round(255 * e[1]);
+    out[i * 4 + 2] = Math.round(255 * e[2]);
     out[i * 4 + 3] = 255;
   }
-  return out;
+  if (bypass || isNeutralCrop(r.crop, r.crop.angle)) return { pixels: out, width: w, height: h };
+  return cropImage(out, w, h, r.crop);
 }

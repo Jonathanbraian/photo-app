@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
-import { PreviewRenderer } from "../gl/renderer";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { PreviewRenderer, type CropView } from "../gl/renderer";
+import type { Lut } from "../lib/lut";
 import { computeHistogram, type Histogram } from "../lib/histogram";
 import type { DecodedImage } from "../lib/imageDecode";
 import type { Recipe } from "../lib/recipe";
@@ -11,6 +12,12 @@ interface Props {
   image: DecodedImage | null;
   recipe: Recipe;
   bypass: boolean;
+  /** LUT referenced by the recipe (already parsed), or null. */
+  lut: Lut | null;
+  /** Crop override: crop mode shows the whole rotated frame. */
+  crop?: CropView;
+  /** Drawn over the photo, in the same box (crop handles). */
+  overlay?: ReactNode;
   zoom: Zoom;
   onZoomChange: (z: Zoom) => void;
   onHistogram: (h: Histogram) => void;
@@ -23,7 +30,8 @@ interface Props {
  * at one image pixel per screen pixel. Click toggles; drag pans at 100 %.
  */
 export default function Viewer(props: Props) {
-  const { image, recipe, bypass, zoom, onZoomChange } = props;
+  const { image, recipe, bypass, lut, crop, overlay, zoom, onZoomChange } = props;
+  const zoomable = !overlay;
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<PreviewRenderer | null>(null);
@@ -63,7 +71,6 @@ export default function Viewer(props: Props) {
     const r = rendererRef.current;
     if (!r || !image) return;
     r.setImage(image.source, image.width, image.height);
-    setSize({ w: image.width, h: image.height });
     setPan({ x: 0, y: 0 });
   }, [image]);
 
@@ -76,15 +83,22 @@ export default function Viewer(props: Props) {
       frame.current = null;
       const r = rendererRef.current;
       if (!r) return;
-      r.render(recipe, { bypass });
-      const { pixels } = r.readPixels(recipe, { bypass }, 256);
+      r.setLut(lut);
+      const opts = { bypass, crop };
+      r.render(recipe, opts);
+      const [w, h] = r.outputSize(recipe, opts);
+      setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
+      const { pixels } = r.readPixels(recipe, opts, 256);
       cb.current.onHistogram(computeHistogram(pixels));
     });
-  }, [image, recipe, bypass]);
+  }, [image, recipe, bypass, lut, crop]);
 
   const dpr = window.devicePixelRatio || 1;
-  const fitScale = size.w && box.w ? Math.min(box.w / size.w, box.h / size.h, 1 / dpr) : 0;
-  const scale = zoom === "fit" ? fitScale : 1 / dpr;
+  // In crop mode, leave room around the photo so the handles stay grabbable.
+  const margin = overlay ? 28 : 0;
+  const fitScale =
+    size.w && box.w ? Math.min((box.w - 2 * margin) / size.w, (box.h - 2 * margin) / size.h, 1 / dpr) : 0;
+  const scale = zoom === "fit" || !zoomable ? fitScale : 1 / dpr;
   const w = size.w * scale;
   const h = size.h * scale;
   const clampPan = (p: { x: number; y: number }) => {
@@ -92,10 +106,10 @@ export default function Viewer(props: Props) {
     const my = Math.max(0, (h - box.h) / 2);
     return { x: Math.min(mx, Math.max(-mx, p.x)), y: Math.min(my, Math.max(-my, p.y)) };
   };
-  const p = zoom === "100" ? clampPan(pan) : { x: 0, y: 0 };
+  const p = zoom === "100" && zoomable ? clampPan(pan) : { x: 0, y: 0 };
 
   const onPointerDown = (e: PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !zoomable) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     drag.current = { x: e.clientX, y: e.clientY, pan: p, moved: false };
   };
@@ -131,7 +145,7 @@ export default function Viewer(props: Props) {
     <div
       ref={boxRef}
       className={`relative h-full w-full overflow-hidden bg-neutral-950 ${
-        zoom === "fit" ? "cursor-zoom-in" : drag.current?.moved ? "cursor-grabbing" : "cursor-grab"
+        !zoomable ? "" : zoom === "fit" ? "cursor-zoom-in" : drag.current?.moved ? "cursor-grabbing" : "cursor-grab"
       }`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -148,6 +162,14 @@ export default function Viewer(props: Props) {
           visibility: image ? "visible" : "hidden",
         }}
       />
+      {overlay && image && (
+        <div
+          className="absolute"
+          style={{ width: w, height: h, left: (box.w - w) / 2 + p.x, top: (box.h - h) / 2 + p.y }}
+        >
+          {overlay}
+        </div>
+      )}
     </div>
   );
 }
