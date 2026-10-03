@@ -3,6 +3,7 @@
 import { renderReference } from "../../src/lib/adjust";
 import { normalizeRecipe } from "../../src/lib/recipe";
 import { PreviewRenderer } from "../../src/gl/renderer";
+import { decodeVia } from "../../src/lib/imageDecode";
 
 function pattern(w: number, h: number): Uint8Array {
   const px = new Uint8Array(w * h * 4);
@@ -30,6 +31,7 @@ interface Result {
 declare global {
   interface Window {
     compare: (recipe: unknown, w: number, h: number, bypass?: boolean) => Result;
+    compareDecoders: () => Promise<{ maxDiff: number; width: number; height: number }>;
   }
 }
 
@@ -58,4 +60,29 @@ window.compare = (input, w, h, bypass = false) => {
     meanDiff: sum / n,
     floatTargets: renderer.gl.getExtension("EXT_color_buffer_float") !== null,
   };
+};
+
+// Both decode paths (ImageBitmap and <img>) must give WebGL the same pixels.
+window.compareDecoders = async () => {
+  const c = new OffscreenCanvas(300, 200);
+  const g = c.getContext("2d")!;
+  const grad = g.createLinearGradient(0, 0, 300, 200);
+  grad.addColorStop(0, "#c02a1f");
+  grad.addColorStop(0.5, "#2fa84a");
+  grad.addColorStop(1, "#3150d8");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 300, 200);
+  const blob = await c.convertToBlob({ type: "image/jpeg", quality: 0.92 });
+  const read = async (via: "imagebitmap" | "img") => {
+    const d = await decodeVia(blob, via);
+    renderer.setImage(d.source, d.width, d.height);
+    const out = renderer.readPixels(normalizeRecipe({}), { bypass: true });
+    d.close();
+    return out;
+  };
+  const a = await read("imagebitmap");
+  const b = await read("img");
+  let max = 0;
+  for (let i = 0; i < a.pixels.length; i++) max = Math.max(max, Math.abs(a.pixels[i] - b.pixels[i]));
+  return { maxDiff: max, width: b.width, height: b.height };
 };

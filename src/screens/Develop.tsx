@@ -7,6 +7,7 @@ import Viewer, { type Zoom } from "../components/Viewer";
 import type { PreviewRenderer } from "../gl/renderer";
 import { readPreview, type Photo } from "../lib/api";
 import type { Histogram } from "../lib/histogram";
+import { decodeJpeg, resizeToCanvas, type DecodedImage } from "../lib/imageDecode";
 import { isTyping } from "../lib/prefs";
 import {
   defaultRecipe,
@@ -54,7 +55,7 @@ async function toBase64Jpeg(canvas: HTMLCanvasElement): Promise<string | null> {
 export default function Develop({ photos, currentId, onCurrentChange, onPhotoUpdated }: Props) {
   const photo = photos.find((p) => p.id === currentId) ?? null;
   const index = photo ? photos.indexOf(photo) : -1;
-  const [image, setImage] = useState<{ photoId: number; bitmap: ImageBitmap } | null>(null);
+  const [image, setImage] = useState<{ photoId: number; decoded: DecodedImage } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [glError, setGlError] = useState<string | null>(null);
   const [histogram, setHistogram] = useState<Histogram | null>(null);
@@ -77,12 +78,14 @@ export default function Develop({ photos, currentId, onCurrentChange, onPhotoUpd
     let cancelled = false;
     setLoadError(null);
     readPreview(photoId)
-      .then((blob) =>
-        createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" }),
-      )
-      .then((bitmap) => {
-        if (cancelled) bitmap.close();
-        else setImage({ photoId, bitmap });
+      .then(decodeJpeg)
+      .then((decoded) => {
+        if (cancelled) decoded.close();
+        else
+          setImage((prev) => {
+            prev?.decoded.close(); // already uploaded to WebGL; free its memory
+            return { photoId, decoded };
+          });
       })
       .catch((e: unknown) => !cancelled && setLoadError(String(e)));
     return () => {
@@ -97,21 +100,12 @@ export default function Develop({ photos, currentId, onCurrentChange, onPhotoUpd
     const scale = Math.min(1, THUMB_SIZE / Math.max(width, height));
     const tw = Math.max(1, Math.round(width * scale));
     const th = Math.max(1, Math.round(height * scale));
-    const bmp = await createImageBitmap(
-      new ImageData(new Uint8ClampedArray(pixels.buffer as ArrayBuffer), width, height),
-      { resizeWidth: tw, resizeHeight: th, resizeQuality: "high" },
-    );
-    const canvas = document.createElement("canvas");
-    canvas.width = tw;
-    canvas.height = th;
-    canvas.getContext("2d")!.drawImage(bmp, 0, 0);
-    bmp.close();
-    return toBase64Jpeg(canvas);
+    return toBase64Jpeg(await resizeToCanvas(pixels, width, height, tw, th));
   }, []);
 
   const editor = useEditor({ photoId, onPhotoUpdated, makeThumbnail });
   // Show the photo only with its own recipe (never the previous photo's).
-  const shown = image && image.photoId === photoId && editor.loadedFor === photoId ? image.bitmap : null;
+  const shown = image && image.photoId === photoId && editor.loadedFor === photoId ? image.decoded : null;
 
   const go = useCallback(
     (delta: number) => {

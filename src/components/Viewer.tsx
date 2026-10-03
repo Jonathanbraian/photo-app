@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { PreviewRenderer } from "../gl/renderer";
 import { computeHistogram, type Histogram } from "../lib/histogram";
+import type { DecodedImage } from "../lib/imageDecode";
 import type { Recipe } from "../lib/recipe";
 
 export type Zoom = "fit" | "100";
 
 interface Props {
   /** Image to show (null while loading). */
-  image: ImageBitmap | null;
+  image: DecodedImage | null;
   recipe: Recipe;
   bypass: boolean;
   zoom: Zoom;
@@ -61,7 +62,7 @@ export default function Viewer(props: Props) {
   useEffect(() => {
     const r = rendererRef.current;
     if (!r || !image) return;
-    r.setImage(image);
+    r.setImage(image.source, image.width, image.height);
     setSize({ w: image.width, h: image.height });
     setPan({ x: 0, y: 0 });
   }, [image]);

@@ -58,3 +58,9 @@ test("antes (bypass) é a imagem original", async ({ page }) => {
   );
   expect(r.maxDiff).toBeLessThanOrEqual(1);
 });
+
+test("ImageBitmap e <img> entregam os mesmos pixels ao WebGL", async ({ page }) => {
+  const r = await page.evaluate(() => window.compareDecoders());
+  expect([r.width, r.height]).toEqual([300, 200]);
+  expect(r.maxDiff, JSON.stringify(r)).toBeLessThanOrEqual(1);
+});

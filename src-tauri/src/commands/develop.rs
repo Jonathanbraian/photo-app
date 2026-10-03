@@ -60,9 +60,50 @@ pub async fn read_preview(
         .filter(|p| p.cache_status == "ready")
         .and_then(|p| p.hash)
         .ok_or_else(|| CommandError::Message("Prévia ainda não disponível.".into()))?;
-    let bytes = std::fs::read(state.cache.preview(&hash))
-        .map_err(|e| CommandError::Message(format!("Não foi possível ler a prévia: {e}")))?;
+    let bytes = read_preview_file(&state.cache.preview(&hash)).map_err(CommandError::Message)?;
     Ok(Response::new(bytes))
+}
+
+/// Reads a cached preview and checks it is a non-empty JPEG.
+pub fn read_preview_file(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("Não foi possível ler a prévia {}: {e}", path.display()))?;
+    if bytes.is_empty() {
+        return Err(format!("A prévia {} está vazia.", path.display()));
+    }
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Err(format!(
+            "A prévia {} não é um JPEG (começa com {:02X?}).",
+            path.display(),
+            &bytes[..bytes.len().min(4)]
+        ));
+    }
+    Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_preview_file;
+
+    #[test]
+    fn preview_file_must_be_a_non_empty_jpeg() {
+        let dir = tempfile::tempdir().unwrap();
+        let ok = dir.path().join("ok.jpg");
+        std::fs::write(&ok, [0xFF, 0xD8, 0xFF, 0xE0, 1, 2]).unwrap();
+        assert_eq!(read_preview_file(&ok).unwrap().len(), 6);
+
+        let empty = dir.path().join("empty.jpg");
+        std::fs::write(&empty, []).unwrap();
+        assert!(read_preview_file(&empty).unwrap_err().contains("vazia"));
+
+        let png = dir.path().join("x.jpg");
+        std::fs::write(&png, [0x89, b'P', b'N', b'G']).unwrap();
+        assert!(read_preview_file(&png)
+            .unwrap_err()
+            .contains("não é um JPEG"));
+
+        assert!(read_preview_file(&dir.path().join("missing.jpg")).is_err());
+    }
 }
 
 #[tauri::command]

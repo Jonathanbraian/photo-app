@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { checkJpeg, toBytes } from "./imageDecode";
 import type { Recipe } from "./recipe";
 
 /** Mirrors `commands::system::AppStatus` in Rust. */
@@ -112,10 +113,11 @@ export interface EditResult {
   photo: Photo | null;
 }
 
-/** The 2048 px preview JPEG bytes (never the original file). */
-export async function readPreview(photoId: number): Promise<Blob> {
-  const bytes = await invoke<ArrayBuffer>("read_preview", { photoId });
-  return new Blob([bytes], { type: "image/jpeg" });
+/** The 2048 px preview JPEG bytes (never the original file), validated. */
+export async function readPreview(photoId: number): Promise<Uint8Array> {
+  const bytes = toBytes(await invoke<unknown>("read_preview", { photoId }));
+  checkJpeg(bytes);
+  return bytes;
 }
 
 export function loadEdit(photoId: number): Promise<EditState> {

@@ -86,6 +86,17 @@ const result = (id: number) => ({ state: state(id), photo: photo(id) });
 
 const ids = [1, 2, 3];
 
+// Failure modes seen on macOS (WKWebView), selected by query string.
+const params = new URLSearchParams(location.search);
+if (params.has("nobitmap")) {
+  // Like Safari: createImageBitmap rejects blobs and ImageData resizing.
+  window.createImageBitmap = (() =>
+    Promise.reject(
+      new DOMException("Cannot decode the data in the argument to createImageBitmap", "InvalidStateError"),
+    )) as typeof window.createImageBitmap;
+}
+const previewMode = params.get("preview"); // "array" | "bad" | null
+
 mockWindows("main");
 mockIPC(
   (cmd, args) => {
@@ -100,6 +111,8 @@ mockIPC(
       case "list_photos":
         return ids.map(photo);
       case "read_preview":
+        if (previewMode === "bad") return new TextEncoder().encode("255,216,255,224").buffer;
+        if (previewMode === "array") return makePreview(id).then((b) => Array.from(new Uint8Array(b)));
         return makePreview(id);
       case "load_edit":
         return state(id);

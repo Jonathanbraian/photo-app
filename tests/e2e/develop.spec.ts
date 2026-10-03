@@ -108,3 +108,38 @@ test("foto editada ganha selo na biblioteca; D abre a última clicada", async ({
   await expect(cell.getByTitle("Editada")).toBeVisible();
   await expect(page.locator('button:has-text("IMG_1.jpg")').getByTitle("Editada")).toHaveCount(0);
 });
+
+// Regression: on macOS WKWebView, createImageBitmap(blob, options) failed with
+// "InvalidStateError: Cannot decode the data…". The preview must still load
+// (via <img>) and the edited thumbnail must still be produced (canvas resize).
+test("Safari: createImageBitmap falhando usa o fallback <img> e canvas", async ({ page }) => {
+  await page.goto("/tests/e2e/app.html?nobitmap=1");
+  await page.locator('button:has-text("IMG_1.jpg")').dblclick();
+  await expect.poll(() => histogramPixels(page)).not.toBe("");
+  await expect(page.locator("text=createImageBitmap")).toHaveCount(0);
+  await expect(page.locator("text=Erro")).toHaveCount(0);
+
+  await page.getByRole("slider", { name: "Exposição" }).fill("1");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as never as { __backend: Backend }).__backend.calls
+          .filter((c) => c.cmd === "save_edited_thumb")
+          .map((c) => String(c.args.jpegBase64).slice(0, 4)),
+      ),
+    )
+    .toContain("/9j/"); // base64 of FF D8 FF
+});
+
+test("prévia entregue como lista de números (IPC alternativo) funciona", async ({ page }) => {
+  await page.goto("/tests/e2e/app.html?preview=array");
+  await page.locator('button:has-text("IMG_1.jpg")').dblclick();
+  await expect.poll(() => histogramPixels(page)).not.toBe("");
+  await expect(page.locator("text=prévia")).toHaveCount(0);
+});
+
+test("prévia que não é JPEG mostra o motivo e os primeiros bytes", async ({ page }) => {
+  await page.goto("/tests/e2e/app.html?preview=bad");
+  await page.locator('button:has-text("IMG_1.jpg")').dblclick();
+  await expect(page.getByText(/A prévia não é um JPEG \(15 bytes, começa com 32 35 35 2C/)).toBeVisible();
+});

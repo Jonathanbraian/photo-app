@@ -90,11 +90,14 @@ export class PreviewRenderer {
     return { width: this.width, height: this.height };
   }
 
-  /** Uploads the 8-bit sRGB preview. Pixels are used exactly as stored. */
-  setImage(image: TexImageSource & { width: number; height: number }) {
+  /**
+   * Uploads the 8-bit sRGB preview (ImageBitmap or decoded <img>). Pixels are
+   * used exactly as stored: no color-space conversion, no premultiplication.
+   */
+  setImage(image: TexImageSource, width: number, height: number) {
     const gl = this.gl;
-    this.width = image.width;
-    this.height = image.height;
+    this.width = width;
+    this.height = height;
     if (this.src) gl.deleteTexture(this.src);
     this.src = this.texture(gl.RGBA8, this.width, this.height, gl.NEAREST);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);

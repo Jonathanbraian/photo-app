@@ -46,7 +46,7 @@ Testes e verificações:
 ```bash
 npm run build                                         # typecheck + build da interface
 npm test                                              # Vitest: fórmulas, receita, seleção
-npx playwright install chromium && npm run test:gl    # WebGL = referência em CPU + fluxo da Edição
+npx playwright install chromium webkit && npm run test:gl   # WebGL = referência + fluxo da Edição (Chromium e WebKit)
 cargo test   --manifest-path src-tauri/Cargo.toml     # testes do banco/migrações
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
